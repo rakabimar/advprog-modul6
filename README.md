@@ -2,6 +2,7 @@
 
 ## Table of Contents
 * [Milestone 1: Single-threaded Web Server Reflection](#milestone-1-single-threaded-web-server-reflection)
+* [Milestone 2: Returning HTML Reflection](#milestone-2-returning-html-reflection)
 
 ## Milestone 1: Single-threaded Web Server Reflection
 
@@ -60,3 +61,65 @@ At this stage, the server has several limitations:
 - It uses minimal error handling (relies on `unwrap()` which will crash the program on errors)
 - It doesn't parse or route requests based on paths or methods
 - It lacks response generation functionality
+
+# Milestone 2: Returning HTML Reflection
+
+This milestone focuses on enhancing the server to generate and return proper HTTP responses with HTML content. The server now not only receives requests but also responds with a complete HTTP response containing a status line, headers, and HTML content loaded from a file.
+
+The main improvement is in the `handle_connection()` function:
+
+```rust
+fn handle_connection(mut stream: TcpStream) {
+    let buf_reader = BufReader::new(&mut stream);
+    let http_request: Vec<_> = buf_reader
+        .lines()
+        .map(|result| result.unwrap())
+        .take_while(|line| !line.is_empty())
+        .collect();
+
+    let status_line = "HTTP/1.1 200 OK";
+    let contents = fs::read_to_string("hello.html").unwrap();
+    let length = contents.len();
+    let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
+    stream.write_all(response.as_bytes()).unwrap();
+}
+```
+
+The updated function now:
+
+1. First reads the HTTP request headers using the same method as before
+2. Creates a status line with "HTTP/1.1 200 OK" indicating a successful response
+3. Reads HTML content from a file named "hello.html" using `fs::read_to_string()`
+4. Calculates the length of the content to use in the Content-Length header
+5. Constructs a complete HTTP response by formatting the status line, headers, and content
+6. Writes the response back to the client using `stream.write_all()`
+
+The HTML file "hello.html" contains a simple webpage with a heading and paragraph:
+
+![Commit 2 screen capture](/assets/images/commit2.png)
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Hello!</title>
+</head>
+<body>
+<h1>Hello!</h1>
+<p>Hi from Rust, running from Rakabima's machine.</p>
+</body>
+</html>
+```
+
+At this stage, the server has made significant progress by:
+- Generating proper HTTP responses with a status line, headers, and body
+- Serving static HTML content from a file
+- Following the HTTP/1.1 protocol by including required headers like Content-Length
+
+However, the server still has several limitations:
+- It returns the same response (200 OK) regardless of the request path or method
+- It only serves a single HTML file ("hello.html")
+- Error handling is minimal (using `unwrap()` which will crash on errors)
+- It processes connections sequentially (single-threaded), limiting throughput
+- It lacks routing capabilities to serve different content based on request paths
