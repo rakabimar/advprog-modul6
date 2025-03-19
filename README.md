@@ -6,6 +6,7 @@
 * [Milestone 3: Validating Requests and Selectively Responding Reflection](#milestone-3-validating-requests-and-selectively-responding-reflection)
 * [Milestone 4: Simulating Slow Response Reflection](#milestone-4-simulating-slow-response-reflection)
 * [Milestone 5: Multithreaded Server Reflection](#milestone-5-multithreaded-server-reflection)
+* [Bonus Milestone: Improved Error Handling Reflection](#bonus-milestone-improved-error-handling-reflection)
 
 ## Milestone 1: Single-threaded Web Server Reflection
 
@@ -358,3 +359,70 @@ At this stage, the server has made substantial progress:
 - It maintains the same routing functionality as before but with parallel processing capability
 - It uses Rust's concurrency primitives to ensure thread-safe communication
 - It provides debug output when workers receive jobs (`println!("Worker {id} got a job; executing.")`)
+
+## Bonus Milestone: Improved Error Handling Reflection
+
+In this bonus milestone, I've enhanced the thread pool implementation with more robust error handling by introducing a `build` function as an alternative to the `new` constructor. This improvement follows Rust's error handling best practices and provides callers with more flexibility when creating a thread pool.
+
+The key enhancement is the addition of the `build` function in the `ThreadPool` implementation:
+
+```rust
+pub fn build(size: usize) -> Result<ThreadPool, PoolCreationError> {
+    if size == 0 {
+        return Err(PoolCreationError::ZeroSize);
+    }
+
+    let (sender, receiver) = mpsc::channel();
+    let receiver = Arc::new(Mutex::new(receiver));
+    let workers = (0..size)
+         .map(|id| Worker::new(id, Arc::clone(&receiver)))
+         .collect::<Vec<Worker>>();
+
+    Ok(ThreadPool { workers, sender })
+}
+```
+
+This implementation introduces several important improvements:
+
+1. **Result Return Type**: The function returns a `Result<ThreadPool, PoolCreationError>` instead of directly returning a `ThreadPool`, following Rust's convention for operations that might fail
+2. **Custom Error Type**: I've created a dedicated `PoolCreationError` enum to represent different failure modes
+3. **Explicit Error Handling**: Instead of using `assert!` which causes a panic, the function returns an `Err` variant when invalid parameters are provided
+4. **Functional Style**: The worker creation uses a more functional approach with `map` and `collect` instead of imperative loop construction
+
+The `main.rs` file has been updated to use this new function:
+
+```rust
+let pool = ThreadPool::build(4).expect("Failed to create ThreadPool!");
+```
+
+This change shows how the caller can now handle potential creation failures. In this case, it still uses `expect` to terminate with a custom message if the pool creation fails, but in production code, proper error handling could be implemented.
+
+The difference between the two approaches illustrates an important distinction in Rust's error handling philosophy:
+
+1. **The `new` Function**:
+   - Uses `assert!(size > 0)` which will panic if the condition fails
+   - Follows Rust's convention that constructors named "new" should not fail or return Result
+   - Appropriate when invalid inputs represent programming errors that should be caught early
+
+2. **The `build` Function**:
+   - Returns `Result<ThreadPool, PoolCreationError>` to represent possible failure
+   - Allows the calling code to handle errors gracefully through the `Result` type
+   - More appropriate when failures might be expected or recoverable
+   - Enables more sophisticated error handling strategies
+
+I've also introduced a proper error type:
+
+```rust
+#[derive(Debug)]
+pub enum PoolCreationError {
+    ZeroSize,
+}
+```
+
+The `#[derive(Debug)]` attribute automatically implements the `Debug` trait, making the error printable and easier to work with during debugging.
+
+At this stage, the server has made these additional improvements:
+- It follows Rust's error handling best practices with Result types
+- It provides a more robust alternative to thread pool creation
+- It uses a custom error type for clearer error reporting
+- It maintains all the concurrency benefits from the previous milestone
