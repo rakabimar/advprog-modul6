@@ -4,6 +4,7 @@
 * [Milestone 1: Single-threaded Web Server Reflection](#milestone-1-single-threaded-web-server-reflection)
 * [Milestone 2: Returning HTML Reflection](#milestone-2-returning-html-reflection)
 * [Milestone 3: Validating Requests and Selectively Responding Reflection](#milestone-3-validating-requests-and-selectively-responding-reflection)
+* [Milestone 4: Simulating Slow Response Reflection](#milestone-4-simulating-slow-response-reflection)
 
 ## Milestone 1: Single-threaded Web Server Reflection
 
@@ -200,3 +201,58 @@ However, the server still has limitations:
 - All HTML content is loaded from disk for each request without caching
 - Error handling remains minimal (using `unwrap()`)
 - It continues to process connections sequentially (single-threaded)
+
+## Milestone 4: Simulating Slow Response Reflection
+
+In this milestone, I've enhanced the web server to demonstrate the impact of slow responses on a single-threaded server. By introducing a route that deliberately delays its response, the server now illustrates the blocking nature of single-threaded processing and how it affects concurrent request handling.
+
+The key modification is in the `handle_connection()` function, which now includes a new route handler:
+
+```rust
+fn handle_connection(mut stream: TcpStream) {
+    let buf_reader = BufReader::new(&mut stream);
+    let request_line = buf_reader.lines().next().unwrap().unwrap();
+
+    let (status_line, filename) = match &request_line[..] {
+        "GET / HTTP/1.1" => ("HTTP/1.1 200 OK", "hello.html"),
+        "GET /sleep HTTP/1.1" => {
+            thread::sleep(Duration::from_secs(10));
+            ("HTTP/1.1 200 OK", "hello.html")
+        },
+        _ => ("HTTP/1.1 404 NOT FOUND", "404.html"),
+    };
+    let contents = fs::read_to_string(filename).unwrap();
+    let length = contents.len();
+    let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
+    stream.write_all(response.as_bytes()).unwrap();
+}
+```
+
+This updated function introduces several important changes:
+
+1. I've added a new route handler for `/sleep` that intentionally delays the response by 10 seconds using `thread::sleep(Duration::from_secs(10))`
+2. After the sleep period, it serves the same "hello.html" content as the root route with a 200 OK status
+3. The `match` expression is extended to handle this new route alongside the existing ones
+4. The code now explicitly imports the `thread` module and `Duration` struct from the standard library
+
+This implementation effectively demonstrates a key limitation of single-threaded servers: blocking behavior. When a client requests the `/sleep` route, the server becomes unresponsive to all other clients for 10 seconds. This happens because:
+
+1. The server processes connections sequentially from the `listener.incoming()` iterator
+2. The single thread can only handle one connection at a time
+3. The current connection must complete (including any delays) before the next one starts
+4. The `thread::sleep()` simulates a CPU-bound or I/O-bound operation that takes time to complete
+
+This behavior accurately represents how many simple servers behaved historically and highlights why more sophisticated concurrency models were developed for web servers.
+
+At this stage, the server has made the following progress:
+- It routes requests to different handlers based on the path
+- It demonstrates the impact of slow operations on single-threaded servers
+- It provides a practical example of blocking behavior in concurrent request scenarios
+
+However, the server still has the following limitations:
+- It cannot handle multiple requests concurrently
+- Long-running operations block all other client connections
+- It remains vulnerable to denial-of-service situations where slow requests could make the server unresponsive
+- Error handling remains minimal (using `unwrap()`)
+- It lacks more advanced features like request headers parsing, query parameters, or POST request handling
+
