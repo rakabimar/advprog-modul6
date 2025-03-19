@@ -6,13 +6,18 @@ use std::{
     time::Duration,
 };
 
+use hello::ThreadPool;
+
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    let pool = ThreadPool::new(4);
 
     for stream in listener.incoming() {
         let stream = stream.unwrap();
 
-        handle_connection(stream);
+        pool.execute(|| {
+            handle_connection(stream);
+        });
     }
 }
 
@@ -25,7 +30,7 @@ fn handle_connection(mut stream: TcpStream) {
         "GET /sleep HTTP/1.1" => {
             thread::sleep(Duration::from_secs(10));
             ("HTTP/1.1 200 OK", "hello.html")
-        },
+        }
         _ => ("HTTP/1.1 404 NOT FOUND", "404.html"),
     };
     let contents = fs::read_to_string(filename).unwrap();

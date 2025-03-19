@@ -5,6 +5,7 @@
 * [Milestone 2: Returning HTML Reflection](#milestone-2-returning-html-reflection)
 * [Milestone 3: Validating Requests and Selectively Responding Reflection](#milestone-3-validating-requests-and-selectively-responding-reflection)
 * [Milestone 4: Simulating Slow Response Reflection](#milestone-4-simulating-slow-response-reflection)
+* [Milestone 5: Multithreaded Server Reflection](#milestone-5-multithreaded-server-reflection)
 
 ## Milestone 1: Single-threaded Web Server Reflection
 
@@ -256,3 +257,104 @@ However, the server still has the following limitations:
 - Error handling remains minimal (using `unwrap()`)
 - It lacks more advanced features like request headers parsing, query parameters, or POST request handling
 
+## Milestone 5: Multithreaded Server Reflection
+
+In this milestone, I've transformed the web server into a multithreaded application by implementing a thread pool pattern. This significant architectural change addresses the performance limitations identified in the previous milestone by enabling concurrent request handling.
+
+The main enhancement is the creation of a `ThreadPool` implementation in a separate `lib.rs` file and updating the server to use this implementation:
+
+```rust
+// In main.rs
+use hello::ThreadPool;
+
+fn main() {
+    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    let pool = ThreadPool::new(4);
+
+    for stream in listener.incoming() {
+        let stream = stream.unwrap();
+
+        pool.execute(|| {
+            handle_connection(stream);
+        });
+    }
+}
+```
+
+The key architectural components include:
+
+1. **Thread Pool Creation**: The server initializes a thread pool with 4 worker threads using `ThreadPool::new(4)`
+2. **Job Delegation**: Each incoming connection is wrapped in a closure and passed to the thread pool via the `execute()` method
+3. **Concurrent Processing**: Worker threads handle connections independently, allowing parallel request processing
+
+The core of the implementation is in the `lib.rs` file:
+
+```rust
+pub struct ThreadPool {
+    workers: Vec<Worker>,
+    sender: mpsc::Sender<Job>,
+}
+
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+impl ThreadPool {
+    pub fn new(size: usize) -> ThreadPool {
+        assert!(size > 0);
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Arc::new(Mutex::new(receiver));
+        let mut workers = Vec::with_capacity(size);
+
+        for id in 0..size {
+            workers.push(Worker::new(id, Arc::clone(&receiver)));
+        }
+
+        ThreadPool { workers, sender }
+    }
+
+    pub fn execute<F>(&self, f: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let job = Box::new(f);
+        self.sender.send(job).unwrap();
+    }
+}
+
+struct Worker {
+    id: usize,
+    thread: thread::JoinHandle<()>,
+}
+
+impl Worker {
+    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+        let thread = thread::spawn(move || loop {
+            let job = receiver.lock().unwrap().recv().unwrap();
+            println!("Worker {id} got a job; executing.");
+            job();
+        });
+
+        Worker { id, thread }
+    }
+}
+```
+
+This implementation uses several key Rust concurrency primitives:
+
+1. **MPSC Channel**: A multiple-producer, single-consumer channel (`mpsc::channel()`) that allows sending jobs from the main thread to worker threads
+2. **Arc (Atomic Reference Counter)**: Enables sharing the receiver across multiple threads with `Arc::clone(&receiver)`
+3. **Mutex (Mutual Exclusion)**: Ensures that only one worker can access the receiver at a time with `receiver.lock()`
+4. **Worker Threads**: Each worker spawns a thread that continuously polls for new jobs via the shared receiver
+5. **Job Type**: Uses a boxed trait object (`Box<dyn FnOnce() + Send + 'static>`) to store closures that can be executed across thread boundaries
+
+The architecture significantly improves server performance:
+
+- It can handle multiple client connections simultaneously (up to 4 with the current configuration)
+- When processing a time-intensive request (like the `/sleep` endpoint), only one worker thread is occupied while others remain available
+- This eliminates the head-of-line blocking problem present in single-threaded servers
+- The server remains responsive even when some requests take a long time to process
+
+At this stage, the server has made substantial progress:
+- It implements true concurrent request handling through a thread pool pattern
+- It maintains the same routing functionality as before but with parallel processing capability
+- It uses Rust's concurrency primitives to ensure thread-safe communication
+- It provides debug output when workers receive jobs (`println!("Worker {id} got a job; executing.")`)
